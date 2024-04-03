@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:chat_app/widgets/user_image_picker.dart';
 import 'package:flutter/material.dart';
 
 import 'package:firebase_auth/firebase_auth.dart';
@@ -20,6 +23,8 @@ class _AuthScreenState extends State<AuthScreen> {
   bool isLogin = true;
   bool isLoading = false;
 
+  File? userPickedImage;
+
   late String enteredEmail;
   late String enteredPassword;
 
@@ -29,6 +34,9 @@ class _AuthScreenState extends State<AuthScreen> {
     if (!isValid) {
       return;
     }
+
+    if (!isLogin && userPickedImage == null) return;
+
     formKey.currentState?.save();
 
     try {
@@ -59,17 +67,6 @@ class _AuthScreenState extends State<AuthScreen> {
           enteredPassword = '';
           isLogin = !isLogin;
         });
-        ScaffoldMessenger.of(context).clearSnackBars();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Account created plase Login'),
-            action: SnackBarAction(
-                label: 'Okay',
-                onPressed: () {
-                  ScaffoldMessenger.of(context).clearSnackBars();
-                }),
-          ),
-        );
       }
     } on FirebaseAuthException catch (error) {
       if (error.code == 'email-already-in-use') {
@@ -116,6 +113,12 @@ class _AuthScreenState extends State<AuthScreen> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          if (!isLogin)
+                            UserImagePicker(
+                              pickedImage: (image) {
+                                userPickedImage = image;
+                              },
+                            ),
                           TextFormField(
                             decoration: const InputDecoration(
                                 labelText: 'Enter your email id'),
