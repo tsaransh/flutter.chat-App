@@ -1,8 +1,9 @@
 import 'dart:io';
 
 import 'package:chat_app/widgets/user_image_picker.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
-
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/services.dart';
 
@@ -27,6 +28,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
   late String enteredEmail;
   late String enteredPassword;
+  String? enteredUsername;
 
   void submit() async {
     final isValid = formKey.currentState!.validate();
@@ -35,51 +37,64 @@ class _AuthScreenState extends State<AuthScreen> {
       return;
     }
 
-    if (!isLogin && userPickedImage == null) return;
+    if (!isLogin && userPickedImage == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please upload an image to continue.'),
+        ),
+      );
+      return;
+    }
 
     formKey.currentState?.save();
 
+    setState(() {
+      isLoading = true;
+    });
+
     try {
+      UserCredential userCredentials;
       if (isLogin) {
-        // logic to loginin user
-        setState(() {
-          isLoading = true;
-        });
-        final userCredentials = await firebase.signInWithEmailAndPassword(
+        userCredentials = await firebase.signInWithEmailAndPassword(
             email: enteredEmail, password: enteredPassword);
-        setState(() {
-          isLoading = false;
-          formKey.currentState!.reset();
-          enteredEmail = '';
-          enteredPassword = '';
-        });
       } else {
-        // logic to singup user
-        setState(() {
-          isLoading = true;
-        });
-        final userCredentials = await firebase.createUserWithEmailAndPassword(
+        userCredentials = await firebase.createUserWithEmailAndPassword(
             email: enteredEmail, password: enteredPassword);
-        setState(() {
-          isLoading = false;
-          formKey.currentState!.reset();
-          enteredEmail = '';
-          enteredPassword = '';
-          isLogin = !isLogin;
+
+        final storageRf = FirebaseStorage.instance
+            .ref()
+            .child('user_images')
+            .child('${userCredentials.user!.uid}.jpg');
+
+        await storageRf.putFile(userPickedImage!);
+        final downloadUrl = await storageRf.getDownloadURL();
+
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userCredentials.user!.uid)
+            .set({
+          'username': enteredUsername,
+          'email_id': enteredEmail,
+          'image_url': downloadUrl
         });
       }
+
+      setState(() {
+        isLoading = false;
+        formKey.currentState!.reset();
+        enteredEmail = '';
+        enteredPassword = '';
+        isLogin = !isLogin;
+      });
     } on FirebaseAuthException catch (error) {
-      if (error.code == 'email-already-in-use') {
-        // ...
-      }
-      ScaffoldMessenger.of(context).clearSnackBars();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(error.message ?? 'Authentication failed'),
         ),
       );
+    } finally {
       setState(() {
-        isLoading = !isLoading;
+        isLoading = false;
       });
     }
   }
@@ -94,12 +109,7 @@ class _AuthScreenState extends State<AuthScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Container(
-                margin: const EdgeInsets.only(
-                  top: 20,
-                  bottom: 20,
-                  left: 20,
-                  right: 20,
-                ),
+                margin: const EdgeInsets.all(20),
                 width: 100,
                 child: Image.asset('assets/images/chat.png'),
               ),
@@ -120,8 +130,8 @@ class _AuthScreenState extends State<AuthScreen> {
                               },
                             ),
                           TextFormField(
-                            decoration: const InputDecoration(
-                                labelText: 'Enter your email id'),
+                            decoration:
+                                const InputDecoration(labelText: 'email id'),
                             keyboardType: TextInputType.emailAddress,
                             autocorrect: false,
                             textCapitalization: TextCapitalization.none,
@@ -129,7 +139,7 @@ class _AuthScreenState extends State<AuthScreen> {
                               if (value == null ||
                                   value.trim().isEmpty ||
                                   !value.contains('@')) {
-                                return 'Please enter a vaild email address.';
+                                return 'Please enter a valid email address.';
                               }
                               return null;
                             },
@@ -137,9 +147,26 @@ class _AuthScreenState extends State<AuthScreen> {
                               enteredEmail = value!;
                             },
                           ),
+                          if (!isLogin)
+                            TextFormField(
+                              decoration:
+                                  const InputDecoration(labelText: 'Username'),
+                              enableSuggestions: false,
+                              validator: (value) {
+                                if (value == null ||
+                                    value.isEmpty ||
+                                    value.trim().length < 4) {
+                                  return 'username must be 4 character long';
+                                }
+                                return null;
+                              },
+                              onSaved: (value) {
+                                enteredUsername = value!;
+                              },
+                            ),
                           TextFormField(
                             decoration: InputDecoration(
-                              labelText: 'Enter your password',
+                              labelText: 'password',
                               suffix: IconButton(
                                 onPressed: () {
                                   setState(() {
@@ -153,7 +180,7 @@ class _AuthScreenState extends State<AuthScreen> {
                             ),
                             validator: (value) {
                               if (value == null || value.trim().length < 6) {
-                                return 'Password must be at leat 6 characters long.';
+                                return 'Password must be at least 6 characters long.';
                               }
                               return null;
                             },
@@ -164,7 +191,7 @@ class _AuthScreenState extends State<AuthScreen> {
                           ),
                           const SizedBox(height: 16),
                           ElevatedButton(
-                            onPressed: submit,
+                            onPressed: isLoading ? null : submit,
                             style: ElevatedButton.styleFrom(
                                 backgroundColor: Theme.of(context)
                                     .colorScheme
@@ -180,12 +207,13 @@ class _AuthScreenState extends State<AuthScreen> {
                           const SizedBox(height: 12),
                           TextButton(
                             onPressed: () {
+                              formKey.currentState!.reset();
                               setState(() {
                                 isLogin = !isLogin;
                               });
                             },
                             child: Text(isLogin
-                                ? 'create an account.'
+                                ? 'Create an account.'
                                 : 'Already have an account.'),
                           )
                         ],
