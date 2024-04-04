@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 class NewChat extends StatefulWidget {
@@ -18,15 +20,27 @@ class _NewChatState extends State<NewChat> {
     super.dispose();
   }
 
-  void sendMessage() {
+  void sendMessage() async {
     final message = messageController.text;
     if (message.trim().isEmpty) {
       return;
     }
+    FocusScope.of(context).unfocus();
+    messageController.clear();
 
     // sending message
-
-    messageController.clear();
+    final user = FirebaseAuth.instance.currentUser!;
+    final userData = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .get();
+    FirebaseFirestore.instance.collection('chat').add({
+      'text': message,
+      'createdAt': Timestamp.now(),
+      'userId': user.uid,
+      'username': userData.data()!['username'],
+      'userImage': userData.data()!['image_url']
+    });
   }
 
   @override
